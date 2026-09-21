@@ -1,0 +1,29 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+
+# macOS
+.DS_Store
+
+# Generated research data
+data/raw/*
+data/processed/*
+
+# Keep directory structure
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Small reproducible samples are tracked
+!data/sample/**
