@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from orbital_decay import figures
+from orbital_decay import figures, orbit3d
 from orbital_decay.results import MODELS_DIR, Run, list_runs
 
 
@@ -297,11 +297,14 @@ def _run_gui(models_dir: Path, run_dir: Path | None) -> None:
             self.sim_plot.draw(
                 figures._empty, "왼쪽에서 조건을 정하고 [시뮬레이션 실행]을 누르세요 (약 1~3초)"
             )
+            self.orbit3d = orbit3d.make_widget()
             self.shape_plot = Plot((12, 5))
             right.addTab(self.sim_plot, "고도 감쇠")
-            right.addTab(self.shape_plot, "궤도 모양")
-            self.sim_alt.valueChanged.connect(self.show_shape)
-            self.sim_inc.valueChanged.connect(self.show_shape)
+            right.addTab(self.orbit3d, "3D 궤도")
+            right.addTab(self.shape_plot, "궤도 모양 · 지상궤적")
+            for s_ in (self.sim_alt, self.sim_inc):
+                s_.valueChanged.connect(self.show_shape)
+            self.sim_start.dateChanged.connect(self.show_shape)
             w.addWidget(box)
             w.addWidget(right)
             w.setSizes([380, 1020])
@@ -419,7 +422,14 @@ def _run_gui(models_dir: Path, run_dir: Path | None) -> None:
             return bc
 
         def show_shape(self):
+            """입력이 바뀌면 2D 모양과 3D 궤도를 (감쇠 없이) 새 조건으로 다시 그린다."""
             self.shape_plot.draw(figures.orbit_shape, self.sim_alt.value(), self.sim_inc.value())
+            if hasattr(self.orbit3d, "set_scenario"):
+                self.orbit3d.set_scenario(
+                    self.sim_alt.value(),
+                    self.sim_inc.value(),
+                    self.sim_start.date().toString("yyyy-MM-dd"),
+                )
 
         def run_simulation(self):
             sc = Scenario(
@@ -453,6 +463,9 @@ def _run_gui(models_dir: Path, run_dir: Path | None) -> None:
 
         def _sim_done(self, curves, info, title):
             self.sim_plot.draw(figures.simulation, curves, info, title)
+            if hasattr(self.orbit3d, "set_scenario"):
+                sc = self._worker.scenario
+                self.orbit3d.set_scenario(sc.alt0_km, sc.inc_deg, sc.start, curves)
             life = ", ".join(
                 f"{figures.model_label(k)}: {v / 365.25:.1f}년"
                 if v
