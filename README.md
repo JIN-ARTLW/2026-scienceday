@@ -153,6 +153,13 @@ uv run python scripts/viewer.py --export    # 창 없이 그림 PNG 저장 → <
 
 - 시뮬레이션은 선택한 결과 폴더의 학습 모델(`models.joblib`)을 씁니다.
   윈도우에서 XGBoost로 학습한 결과를 libomp 없는 맥에서 열면 ML 곡선만 빠지고 나머지는 동작합니다.
-- 3D 지구에 대륙을 입히려면 정거원통도법 지구 사진을 `assets/earth.jpg`로 두면 됩니다 (없으면 바다색 구 + 격자).
+- 3D 지구 텍스처 `assets/earth.jpg`: NASA Visible Earth *Blue Marble* (land_shallow_topo_2048,
+  NASA Goddard Space Flight Center, Reto Stöckli; 퍼블릭 도메인).
+  위치 정확도 검증(`tests/test_orbit3d.py`):
+  - 뷰어의 좌표 변환 → skyfield 직하점과 경도 < 0.01°, 위도 < 0.03° (측지위도 보정 포함)
+  - 텍스처 정합 → 작은 섬·좁은 바다 포함 기준점 24곳 육지/바다 판별 (±1° 밀면 틀리기 시작)
+  - 지구 메시 0.5° 간격 → 해안선 위치 오차가 텍스처 픽셀(0.18°) 수준
+  - 시뮬레이션 궤도의 교점 경도(RAAN)는 가정값(0°)이라, 특정 실제 위성의 위치가 아니라
+    '이런 궤도라면 이렇게 지나간다'는 계산입니다.
 - 태양·지자기 자료가 끝난 뒤(현재 2026-11-12 이후)는 과거 주기(SC24)를 다시 쓰는 시나리오이며,
   그래프에 노란 영역으로 표시됩니다.
