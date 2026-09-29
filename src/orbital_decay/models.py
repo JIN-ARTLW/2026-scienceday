@@ -128,17 +128,60 @@ class MLCorrectionModel(PhysicsModel):
         return np.clip(self.model_.predict(df[self.features]), MIN_CORRECTION, None)
 
     def feature_importance(self, df: pd.DataFrame, n_repeats: int = 5) -> pd.Series:
-        """주어진 자료에서의 순열 중요도 (가중 배율 MSE 증가량)."""
-        from sklearn.inspection import permutation_importance
+        return feature_importance(self, df, n_repeats, self.random_state)
 
-        rows = _training_rows(df)
-        result = permutation_importance(
-            self.model_,
-            rows[self.features],
-            rows["ratio"],
-            sample_weight=_weights(rows),
-            n_repeats=n_repeats,
-            random_state=self.random_state,
-            scoring="neg_mean_squared_error",
+
+def feature_importance(
+    model: PhysicsModel, df: pd.DataFrame, n_repeats: int = 5, random_state: int = 0
+) -> pd.Series:
+    """학습된 보정모델의 순열 중요도 (가중 배율 MSE 증가량). 보정 학습이 없는 모델은 빈 값."""
+    if not hasattr(model, "model_"):
+        return pd.Series(dtype=float)
+    from sklearn.inspection import permutation_importance
+
+    rows = _training_rows(df)
+    result = permutation_importance(
+        model.model_,
+        rows[model.features],
+        rows["ratio"],
+        sample_weight=_weights(rows),
+        n_repeats=n_repeats,
+        random_state=random_state,
+        scoring="neg_mean_squared_error",
+    )
+    return pd.Series(result.importances_mean, index=model.features).sort_values(ascending=False)
+
+
+class FittedCorrection(PhysicsModel):
+    """학습이 끝난 보정모델을 저장·공유하기 위한 형태 (예측에 필요한 것만 담는다).
+
+    후보 정의(Candidate)처럼 pickle할 수 없는 객체를 떼어내고, 뷰어·시뮬레이션에서
+    correction()만 쓰도록 한다.
+    """
+
+    def __init__(self, name, model, features, min_correction=MIN_CORRECTION, max_correction=None):
+        self.name = name
+        self.model_ = model
+        self.features = list(features)
+        self.min_correction = min_correction
+        self.max_correction = max_correction
+
+    def fit(self, df: pd.DataFrame) -> FittedCorrection:
+        return self
+
+    def correction(self, df: pd.DataFrame) -> np.ndarray:
+        return np.clip(
+            self.model_.predict(df[self.features]), self.min_correction, self.max_correction
         )
-        return pd.Series(result.importances_mean, index=self.features).sort_values(ascending=False)
+
+
+def freeze(model: PhysicsModel) -> PhysicsModel:
+    """학습된 모델을 저장 가능한 형태로 바꾼다 (물리·고정 k 모델은 그대로)."""
+    if not hasattr(model, "model_"):
+        return model
+    return FittedCorrection(
+        model.name,
+        model.model_,
+        model.features,
+        max_correction=getattr(model, "max_correction", None),
+    )

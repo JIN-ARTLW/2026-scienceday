@@ -50,3 +50,7 @@ def daily_space_weather(start, end, pad_days: int = 100) -> pd.DataFrame:
     sw["ap_trail3"] = sw["ap_daily"].rolling(3, min_periods=1).mean()
     sw["ap_max3"] = sw["ap_max_day"].rolling(3, min_periods=1).max()
     return sw[sw["date"] >= start].reset_index(drop=True)
+
+
+# 태양활동 배율 시나리오에서 함께 조정하는 F10.7 계열 열
+SW_FEATURES_SCALED = ["f107_obs", "f107a_centered", "f107_trail27", "f107_trail81"]

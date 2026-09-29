@@ -330,6 +330,7 @@ class CandidateCorrection(PhysicsModel):
         self.features = features or DEFAULT_FEATURES
         self.tune = tune
         self.inner_folds = inner_folds
+        self.max_correction = MAX_CORRECTION
 
     def fit(self, df: pd.DataFrame) -> CandidateCorrection:
         rows = _training_rows(df)
