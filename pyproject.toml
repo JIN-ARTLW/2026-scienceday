@@ -20,6 +20,7 @@ dependencies = [
     "skyfield>=1.55",
     "streamlit>=1.64.0",
     "xarray>=2026.7.0",
+    "xgboost>=3.0",
 ]
 
 [dependency-groups]
