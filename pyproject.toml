@@ -23,6 +23,11 @@ dependencies = [
     "xgboost>=3.0",
 ]
 
+[project.optional-dependencies]
+viewer = [
+    "pyside6>=6.8",
+]
+
 [dependency-groups]
 dev = [
     "marimo>=0.24.2",

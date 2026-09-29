@@ -20,6 +20,7 @@ import warnings
 from datetime import datetime
 from pathlib import Path
 
+import joblib
 import pandas as pd
 
 from orbital_decay.analysis import lag_correlation
@@ -34,7 +35,13 @@ from orbital_decay.evaluation import (
     split_satellites,
     summarize,
 )
-from orbital_decay.models import FixedCorrectionModel, MLCorrectionModel, PhysicsModel
+from orbital_decay.models import (
+    FixedCorrectionModel,
+    MLCorrectionModel,
+    PhysicsModel,
+    feature_importance,
+    freeze,
+)
 from orbital_decay.orbit import decay_windows, prepare_history
 from orbital_decay.spaceweather import daily_space_weather
 
@@ -83,6 +90,10 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--loso", action="store_true", help="위성 하나씩 빼는 교차검증도 실행")
     p.add_argument("--backend", default="auto", choices=["auto", "xgboost", "sklearn"])
+    p.add_argument(
+        "--ml-model",
+        help="select_model.py가 고른 후보 이름 (예: ridge, xgboost). 없으면 기본 부스팅 모델",
+    )
     p.add_argument("--synthetic-n", type=int, default=9)
     p.add_argument("--synthetic-days", type=int, default=1500)
     p.add_argument("--out", help="결과 폴더 (기본: <데이터 폴더>/processed/models/<시각>_<컴퓨터>)")
@@ -117,14 +128,24 @@ def main() -> None:
     if df.attrs.get("dropped_no_bc"):
         print("BC 추정 불가로 제외된 위성:", df.attrs["dropped_no_bc"])
 
-    models = [PhysicsModel(), FixedCorrectionModel(), MLCorrectionModel(backend=args.backend)]
+    if args.ml_model:
+        from orbital_decay.selection import CandidateCorrection, available_candidates
+
+        by_name = {c.name: c for c in available_candidates(args.seed)}
+        if args.ml_model not in by_name:
+            p.error(f"--ml-model: 이 컴퓨터에서 쓸 수 있는 후보는 {sorted(by_name)}")
+        ml_model = CandidateCorrection(by_name[args.ml_model])
+    else:
+        ml_model = MLCorrectionModel(backend=args.backend)
+    models = [PhysicsModel(), FixedCorrectionModel(), ml_model]
     train_ids, test_ids = split_satellites(df["norad_id"].unique(), args.test_fraction, args.seed)
     summary, pred, fitted = compare_models(df, train_ids, test_ids, models)
     pred["activity"] = activity_bins(pred)
 
     ml = fitted[-1]
     print(f"\n학습 위성 {train_ids}\n검증 위성 {test_ids}")
-    print(f"고정 보정계수 k = {fitted[1].k_:.3f},  ML backend = {ml.backend_}")
+    ml_label = getattr(ml, "backend_", ml.name)
+    print(f"고정 보정계수 k = {fitted[1].k_:.3f},  ML 모델 = {ml_label}")
     print("\n[검증 위성 감쇠율 오차]")
     print(summary.round(3).to_string())
     by_activity = summarize(pred, fitted, by="activity")
@@ -141,7 +162,7 @@ def main() -> None:
         prop.to_csv(out / "propagation_errors.csv", index=False)
         curves.to_parquet(out / "propagation_curves.parquet", index=False)
 
-    importance = ml.feature_importance(pred.assign(is_calib=False))
+    importance = feature_importance(ml, pred.assign(is_calib=False), random_state=args.seed)
     print("\n[ML 특징 중요도 (검증 위성)]")
     print(importance.round(4).to_string())
 
@@ -156,6 +177,8 @@ def main() -> None:
     df.to_parquet(out / "dataset.parquet", index=False)
     importance.to_csv(out / "feature_importance.csv")
     lag.to_csv(out / "lag_correlation_f107.csv", index=False)
+    # 뷰어·시뮬레이션용: 학습 위성으로 학습한 모델 (예측에 필요한 부분만 저장)
+    joblib.dump({m.name: freeze(m) for m in fitted}, out / "models.joblib")
     if meta is not None:
         meta.to_csv(out / "metadata.csv", index=False)
 
@@ -174,7 +197,8 @@ def main() -> None:
                 "train_ids": train_ids,
                 "test_ids": test_ids,
                 "fixed_k": fitted[1].k_,
-                "ml_backend": ml.backend_,
+                "ml_model": ml.name,
+                "ml_backend": ml_label,
                 "features": ml.features,
                 "cleaning": {str(k): v for k, v in history.attrs.get("cleaning", {}).items()},
             },

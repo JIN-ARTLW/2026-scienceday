@@ -18,6 +18,8 @@ import pandas as pd
 from orbital_decay.constants import MU_EARTH, R_EQ_KM, SECONDS_PER_DAY
 from orbital_decay.density import DensityLookup
 
+REENTRY_KM = 120.0  # 이 평균고도 아래는 재진입으로 본다
+
 
 def drag_factor(rho, a_km):
     """BC=1 m^2/kg일 때의 da/dt [km/day]."""
@@ -55,37 +57,43 @@ def propagate(
     lookup: DensityLookup,
     correction: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None,
     steps_per_day: int = 4,
+    max_step_km: float = 0.5,
+    reentry_km: float = REENTRY_KM,
 ) -> pd.DataFrame:
     """평균 반장축을 t0부터 n_days 동안 적분한다 (RK2, 밀도는 날짜별 표에서 보간).
 
+    한 걸음의 고도 변화가 max_step_km를 넘지 않도록 간격을 줄인다 (재진입 직전 급감쇠 대응).
+    평균고도가 reentry_km 아래로 내려가면 그 시각에서 멈춘다.
     correction(dates, alt_km) -> 감쇠율 배율. 보정계수 모델과 ML 보정모델이 여기로 들어온다.
     """
-    dt = 1.0 / steps_per_day
     t0 = pd.Timestamp(t0)
-    available = lookup.dates(norad_id).astype("datetime64[D]")
-    last_day = available.max()
+    day0 = t0.to_datetime64().astype("datetime64[D]")
+    frac0 = (t0 - t0.floor("D")).total_seconds() / 86400
+    last_day = lookup.dates(norad_id).astype("datetime64[D]").max()
 
     def rate(t_days: float, a_km: float) -> float:
-        day = (t0 + pd.Timedelta(days=t_days)).to_datetime64().astype("datetime64[D]")
-        day = min(day, last_day)
-        alt = a_km - R_EQ_KM
-        if alt < 120:
-            return 0.0
-        r = bc * drag_factor(lookup.rho(norad_id, [day], alt), a_km)[0]
+        day = min(day0 + np.timedelta64(int(np.floor(frac0 + t_days)), "D"), last_day)
+        r = bc * drag_factor(lookup.rho(norad_id, [day], a_km - R_EQ_KM), a_km)[0]
         if correction is not None:
-            r *= float(correction(np.array([day]), np.array([alt]))[0])
+            r *= float(correction(np.array([day]), np.array([a_km - R_EQ_KM]))[0])
         return r
 
     t, a = 0.0, float(a0_km)
     rows = [(t0, a)]
+    reentered = False
     for _ in range(n_days):
-        for _ in range(steps_per_day):
+        t_end = t + 1.0
+        while t < t_end - 1e-9:
             k1 = rate(t, a)
+            dt = min(t_end - t, 1.0 / steps_per_day, max_step_km / max(abs(k1), 1e-12))
             k2 = rate(t + dt / 2, a + k1 * dt / 2)
             a += k2 * dt
             t += dt
+            if a - R_EQ_KM < reentry_km:
+                reentered = True
+                break
         rows.append((t0 + pd.Timedelta(days=t), a))
-        if a - R_EQ_KM < 120:
+        if reentered:
             break
     out = pd.DataFrame(rows, columns=["time", "a_km"])
     out["alt_km"] = out["a_km"] - R_EQ_KM

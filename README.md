@@ -130,3 +130,27 @@ HistGradientBoosting, MLP, 그리고 설치돼 있으면 XGBoost·LightGBM·CatB
   (`.env.example` 참고). 모델 결과는 `<Drive>/…/data/processed/models/<시각>_<컴퓨터>/`에 쌓인다.
 - Orbitoby DuckDB는 Drive 안에서 직접 쓰지 않는다. 로컬에서 수집한 뒤 스냅샷을 복사해 읽기 전용으로 쓴다.
 - 계산할 컴퓨터에서는 Drive 폴더를 "오프라인 사용 가능"으로 설정한다 (스트리밍 모드는 첫 읽기가 느림).
+
+## 결과 뷰어 (`scripts/viewer.py`)
+
+결과 폴더(`<데이터 폴더>/processed/models/`)를 읽어 창으로 보여줍니다. 계산은 윈도우 노트북에서 하고,
+Google Drive로 동기화된 결과를 맥에서 열어도 됩니다.
+
+```bash
+uv sync --extra viewer --inexact            # 처음 한 번 (PySide6 설치, 다른 패키지는 건드리지 않음)
+uv run python scripts/viewer.py             # 창 열기 (최신 결과)
+uv run python scripts/viewer.py --export    # 창 없이 그림 PNG 저장 → <결과 폴더>/figures/
+```
+
+| 탭 | 내용 |
+|---|---|
+| 요약 | 실행 정보, 모델 선택 근거(`selection/report.md`), 모델별 skill·95% CI |
+| 위성별 | 평균고도, 관측·모델별 감쇠율, F10.7·Ap (회색 = BC 추정 구간) |
+| 궤도 전파 | 보정 구간 끝에서 출발한 모델별 고도 예측 vs 관측, 기간별 오차 |
+| 태양활동 | TLE 역산 밀도와 F10.7 지연 상관, 밀도-F10.7 산점도 |
+| 시뮬레이션 | 고도·경사각·질량·단면적·시작일·태양활동 배율 → 모델별 감쇠 곡선과 수명, 궤도 모양·지상궤적 |
+
+- 시뮬레이션은 선택한 결과 폴더의 학습 모델(`models.joblib`)을 씁니다.
+  윈도우에서 XGBoost로 학습한 결과를 libomp 없는 맥에서 열면 ML 곡선만 빠지고 나머지는 동작합니다.
+- 태양·지자기 자료가 끝난 뒤(현재 2026-11-12 이후)는 과거 주기(SC24)를 다시 쓰는 시나리오이며,
+  그래프에 노란 영역으로 표시됩니다.
