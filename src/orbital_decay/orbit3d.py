@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from orbital_decay.constants import R_EQ_KM
+from orbital_decay.constants import R_EQ_KM, WGS84_F
 from orbital_decay.orbit import make_satrec
 
 TEXTURE_PATH = Path(__file__).resolve().parents[2] / "assets" / "earth.jpg"
@@ -107,20 +107,20 @@ def rotate_z(xyz: np.ndarray, angle: np.ndarray) -> np.ndarray:
 
 def earth_vertex_colors(verts: np.ndarray, texture: Path = TEXTURE_PATH) -> np.ndarray:
     """구 꼭짓점(지구고정 좌표)의 색. 텍스처가 없으면 바다색에 위도 음영."""
-    lat = np.degrees(np.arcsin(np.clip(verts[:, 2], -1, 1)))
+    # 구 위의 방향은 지심위도, 지도 이미지는 측지위도(WGS84) → 변환해서 읽어야 대륙이 제자리에 온다
+    psi = np.arcsin(np.clip(verts[:, 2] / np.linalg.norm(verts, axis=1), -1, 1))
+    lat = np.degrees(np.arctan(np.tan(psi) / (1 - WGS84_F) ** 2))
     lon = np.degrees(np.arctan2(verts[:, 1], verts[:, 0]))
     if texture.exists():
-        from PySide6.QtGui import QImage
+        from matplotlib.image import imread
 
-        img = QImage(str(texture))
-        if not img.isNull():
-            w, h = img.width(), img.height()
-            px = np.clip(((lon + 180) / 360 * w).astype(int), 0, w - 1)
-            py = np.clip(((90 - lat) / 180 * h).astype(int), 0, h - 1)
-            cols = np.array(
-                [img.pixelColor(int(x), int(y)).getRgbF() for x, y in zip(px, py, strict=True)]
-            )
-            return cols
+        img = imread(str(texture))
+        img = img.astype(float) / 255.0 if img.dtype == np.uint8 else img.astype(float)
+        h, w = img.shape[:2]
+        px = np.clip(((lon + 180) / 360 * w).astype(int), 0, w - 1)
+        py = np.clip(((90 - lat) / 180 * h).astype(int), 0, h - 1)
+        rgb = img[py, px, :3]
+        return np.column_stack([rgb, np.ones(len(rgb))])
     shade = 0.75 + 0.25 * np.cos(np.radians(lat))
     base = np.array([0.16, 0.38, 0.66, 1.0])
     cols = np.tile(base, (len(verts), 1))
@@ -200,7 +200,8 @@ def make_widget(parent=None):
             self.view.setBackgroundColor((8, 10, 20))
             self.view.setCameraPosition(pos=Vector(0, 0, 0), distance=4.2, elevation=22, azimuth=35)
 
-            md = gl.MeshData.sphere(rows=72, cols=144, radius=1.0)
+            # 0.5° 간격: 해안선 위치 오차가 텍스처 픽셀(0.18°) 수준이 되도록 촘촘하게
+            md = gl.MeshData.sphere(rows=360, cols=720, radius=1.0)
             md.setVertexColors(earth_vertex_colors(md.vertexes()))
             self.earth = gl.GLMeshItem(
                 meshdata=md, smooth=True, shader="shaded", glOptions="opaque"
@@ -209,6 +210,7 @@ def make_widget(parent=None):
             self.grid_items = []
             for main, pts in graticule():
                 item = gl.GLLinePlotItem(
+                    glOptions="translucent",
                     pos=pts,
                     width=1.5 if main else 1.0,
                     antialias=True,
@@ -217,15 +219,24 @@ def make_widget(parent=None):
                 self.view.addItem(item)
                 self.grid_items.append(item)
             axis = gl.GLLinePlotItem(
-                pos=np.array([[0, 0, -1.35], [0, 0, 1.35]]), color=(0.7, 0.7, 0.7, 0.6), width=1
+                glOptions="translucent",
+                pos=np.array([[0, 0, -1.35], [0, 0, 1.35]]),
+                color=(0.7, 0.7, 0.7, 0.6),
+                width=1,
             )
             self.view.addItem(axis)
             self.grid_items.append(axis)
 
-            self.trail = gl.GLLinePlotItem(color=(1.0, 0.55, 0.1, 0.95), width=2, antialias=True)
-            self.ground = gl.GLLinePlotItem(color=(1.0, 0.9, 0.2, 0.9), width=1.5, antialias=True)
-            self.sat = gl.GLScatterPlotItem(color=(1, 1, 1, 1), size=11, pxMode=True)
-            self.nadir = gl.GLLinePlotItem(color=(1, 1, 1, 0.35), width=1)
+            self.trail = gl.GLLinePlotItem(
+                glOptions="translucent", color=(1.0, 0.55, 0.1, 0.95), width=2, antialias=True
+            )
+            self.ground = gl.GLLinePlotItem(
+                glOptions="translucent", color=(1.0, 0.9, 0.2, 0.9), width=1.5, antialias=True
+            )
+            self.sat = gl.GLScatterPlotItem(
+                glOptions="translucent", color=(1, 1, 1, 1), size=11, pxMode=True
+            )
+            self.nadir = gl.GLLinePlotItem(glOptions="translucent", color=(1, 1, 1, 0.35), width=1)
             for it in (self.trail, self.ground, self.nadir, self.sat):
                 self.view.addItem(it)
 
