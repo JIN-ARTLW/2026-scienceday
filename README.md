@@ -65,3 +65,68 @@ Ashruf et al. (2026), *Characterizing solar cycle influence on long-term orbital
 ```
 
 [Marimo 공식 문서](https://docs.marimo.io/)에서 편집·실행 모드를 확인할 수 있습니다.
+
+## 궤도 감쇠 예측 모델 (`src/orbital_decay`)
+
+순수 물리모델 / 고정 보정계수 모델 / ML 보정모델을 같은 자료로 학습·비교합니다.
+입력은 Orbitoby `orbit_elements` 표(열 이름 그대로)입니다.
+
+```bash
+# 가상 위성으로 전체 파이프라인 확인 (정답 BC·밀도 편향을 아는 자료)
+.venv/bin/python scripts/run_models.py --synthetic --loso
+
+# Orbitoby DuckDB에서 바로
+.venv/bin/python scripts/run_models.py --orbitoby-db ~/.orbitoby/warehouse/archive.duckdb --loso
+
+# 내보낸 parquet/csv + 위성 제원(norad_id,mass_kg,area_m2, 선택)
+.venv/bin/python scripts/run_models.py --elements data/processed/orbit_elements.parquet \
+    --metadata data/sample/satellites.csv
+```
+
+결과는 `data/processed/models/<시각>/`에 저장됩니다 (요약 CSV, 창별 예측, 전파 곡선, `run.json`).
+
+### 처리 단계
+
+1. `orbit.prepare_history`: SGP4 초기화로 Brouwer 평균 반장축 계산, 이동중앙값 기준 이상치 제거.
+   Orbitoby의 `semimajor_axis_km`(Kozai 평균운동 기반)와 약 1 km 다르므로 섞지 않습니다.
+2. `orbit.decay_windows`: 14일 창마다 반장축 직선 적합 → 관측 감쇠율 da/dt.
+3. `density`: 실제 궤도 경로를 따라 NRLMSIS 2.1 밀도를 표본 추출한 궤도 평균 밀도 표 (고도층 7개, 캐시).
+4. `physics`: da/dt = −BC·ρ·√(μa). 각 위성의 **앞 365일(보정 구간)** 으로만 BC를 최소제곱 추정.
+5. `models`
+   - `PhysicsModel`: BC × MSIS 물리 예측
+   - `FixedCorrectionModel`: 학습 위성에서 구한 배율 k 하나를 곱함
+   - `MLCorrectionModel`: 배율을 특징(고도, 경사각, BC, F10.7·Ap 후행 평균 등)의 함수로 학습
+     (XGBoost, 불가하면 scikit-learn HistGradientBoosting). 목표 = 관측/물리, 가중치 = 물리²
+     → 감쇠율 제곱오차 최소화.
+6. `evaluation`: 위성 단위 2/3·1/3 분할, 위성 하나씩 빼는 교차검증(`--loso`),
+   태양활동 조건별 오차, 보정 구간 끝에서의 궤도 전파 고도 오차(30/90/180/365일).
+7. `analysis.lag_correlation`: TLE 역산 밀도와 F10.7의 지연 상관.
+
+### 주의
+
+- ML 특징에는 미래 정보가 없는 후행 평균만 씁니다. MSIS 입력의 81일 중심 평균 F10.7은 물리모델에만 쓰입니다.
+- 평균고도 250 km 아래(재진입 직전) 창은 기본으로 제외합니다 (`--min-alt-km`).
+- XGBoost를 쓰려면 macOS에서 `brew install libomp`가 필요합니다. 없으면 자동으로 scikit-learn을 씁니다.
+
+### ML 모델 선택 (`scripts/select_model.py`)
+
+후보(선형, 선형+상호작용, 가중 kNN, SVR, 가우시안 과정, 랜덤포레스트, Extra Trees,
+HistGradientBoosting, MLP, 그리고 설치돼 있으면 XGBoost·LightGBM·CatBoost)를 같은 조건에서 비교합니다.
+
+```bash
+.venv/bin/python scripts/select_model.py data/processed/models/<run>/dataset.parquet
+```
+
+- 바깥 루프: 위성 하나씩 빼기(LOSO), 안쪽 루프: 학습 위성만으로 GroupKFold 하이퍼파라미터 선택
+- 위성별 skill = 1 − RMSE_모델 / RMSE_순수물리, 부트스트랩 95% CI
+- 선택 규칙: 최고 후보와 위성별 RMSE가 유의하게 다르지 않은(Wilcoxon p ≥ 0.05) 후보 중 가장 단순한 것.
+  순수 물리모델도 후보라서, 보정이 일반화된다는 근거가 없으면 물리모델이 선택됩니다.
+- 결과: `selection/report.md` (방법, 표, 선택 근거, 후보에서 뺀 방법과 이유)
+
+## 맥·윈도우 공동 작업 (Git + Google Drive)
+
+- **코드**: Git(GitHub)으로만 공유. 저장소·`.venv`는 Google Drive 밖(각자 로컬)에 둔다.
+- **데이터·결과**: 각 컴퓨터의 `.env`에서 `SCIENCEDAY_DATA_DIR`를 같은 Drive 폴더로 지정한다
+  (`.env.example` 참고). 모델 결과는 `<Drive>/…/data/processed/models/<시각>_<컴퓨터>/`에 쌓인다.
+- Orbitoby DuckDB는 Drive 안에서 직접 쓰지 않는다. 로컬에서 수집한 뒤 스냅샷을 복사해 읽기 전용으로 쓴다.
+- 계산할 컴퓨터에서는 Drive 폴더를 "오프라인 사용 가능"으로 설정한다 (스트리밍 모드는 첫 읽기가 느림).
