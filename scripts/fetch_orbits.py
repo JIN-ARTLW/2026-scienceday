@@ -47,7 +47,10 @@ def main() -> None:
     p.add_argument("--start", default="1986-09-01", help="기본 시작일 [포함]")
     p.add_argument("--end", default="2020-01-01", help="기본 종료일 [미포함]")
     p.add_argument("--chunk-years", type=int, default=5)
-    p.add_argument("--pause", type=float, default=15.0, help="Space-Track 요청 사이 대기 [초]")
+    p.add_argument("--pause", type=float, default=30.0, help="Space-Track 요청 사이 대기 [초]")
+    p.add_argument(
+        "--retries", type=int, default=3, help="연결 실패 시 재시도 횟수 (60·120·180초 대기)"
+    )
     p.add_argument("--out", default=str(RAW_DIR / "orbit_elements.parquet"))
     p.add_argument("--dry-run", action="store_true", help="요청 계획만 출력")
     args = p.parse_args()
@@ -85,11 +88,20 @@ def main() -> None:
 
         for i, (nid, a, b, _) in enumerate(plan):
             t0 = time.time()
-            try:
-                df = archive.orbit(norad_id=nid, start=a, end=b, sync=True)
-                status = "ok"
-            except Exception as exc:  # 위성 하나 실패해도 나머지는 계속
-                df, status = pd.DataFrame(), f"{type(exc).__name__}: {exc}"
+            for attempt in range(args.retries + 1):
+                try:
+                    df = archive.orbit(norad_id=nid, start=a, end=b, sync=True)
+                    status = "ok"
+                    break
+                except Exception as exc:  # 위성 하나 실패해도 나머지는 계속
+                    df, status = pd.DataFrame(), f"{type(exc).__name__}: {exc}"
+                    if attempt < args.retries:
+                        wait = 60 * (attempt + 1)  # 연결이 끊기면 점점 길게 쉬고 다시
+                        print(
+                            f"  재시도 {attempt + 1}/{args.retries}: "
+                            f"{wait}초 후 ({type(exc).__name__})"
+                        )
+                        time.sleep(wait)
             print(
                 f"[{i + 1}/{len(plan)}] {nid} {a}→{b}: {len(df)}개 "
                 f"{'' if status == 'ok' else status}"

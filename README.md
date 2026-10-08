@@ -163,3 +163,21 @@ uv run python scripts/viewer.py --export    # 창 없이 그림 PNG 저장 → <
     '이런 궤도라면 이렇게 지나간다'는 계산입니다.
 - 태양·지자기 자료가 끝난 뒤(현재 2026-11-12 이후)는 과거 주기(SC24)를 다시 쓰는 시나리오이며,
   그래프에 노란 영역으로 표시됩니다.
+
+## 실제 자료: Orbitoby → 모델
+
+```bash
+# 1) 궤도 이력 받기 (Space-Track, 이 프로젝트 .env 계정 사용, 약 1~2시간)
+.venv/bin/python scripts/fetch_orbits.py --satellites data/sample/ashruf17.csv \
+    --start 1986-09-01 --end 2020-01-01
+# 2) Ashruf et al. (2026) Table 2 재현
+.venv/bin/python scripts/reproduce_ashruf.py
+# 3) 세 모델 비교 → 4) ML 후보 선택
+.venv/bin/python scripts/run_models.py --elements data/raw/orbit_elements.parquet --loso
+.venv/bin/python scripts/select_model.py data/processed/models/<run>/dataset.parquet
+```
+
+- 연결이 끊긴 구간은 60·120·180초 간격으로 재시도하고, 다시 실행하면 빠진 구간만 요청합니다.
+- Claude Code 샌드박스에서는 Space-Track·CelesTrak 연결이 막힐 수 있습니다(샌드박스 밖 실행 필요).
+- Table 2 재현 결과(17기 × 3주기): 평균 차이 SC22 0.003, SC23 0.014, SC24 0.008 m/h.
+  급감쇠 공통 구간은 자동 산출이며, 논문은 이 구간을 그림과 대조해 수동 조정했습니다.
