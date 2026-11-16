@@ -1,5 +1,22 @@
 # 2026 사이언스데이
 
+태양 활동과 열권 밀도로 저궤도 위성의 수명을 예측하는 연구예요. 세부 모델은 하위 저장소(서브모듈)로 연결되어 있어요.
+
+| 폴더 | 저장소 | 내용 |
+|---|---|---|
+| [`ML1/`](https://github.com/JIN-ARTLW/2026scienceday-ML1_density) | 2026scienceday-ML1_density | ML1 대기밀도 보정 모델 (MSIS 2.1 + 태양·지자기 활동), ML1-2 30년 밀도 앙상블 |
+| [`ML2/`](https://github.com/JIN-ARTLW/2026scienceday-ML2_decay) | 2026scienceday-ML2_decay | ML2 위성 수명 계산식 (최종 v11: 식 v7 + 계산 경로 4가지) |
+
+```bash
+git clone --recurse-submodules https://github.com/JIN-ARTLW/2026-scienceday.git
+# 이미 받았으면
+git submodule update --init
+```
+
+- ML1·ML2 저장소는 비공개예요. 접근 권한이 없으면 서브모듈 폴더는 비어 있어요.
+- 하위 저장소를 최신으로 맞추려면 `git submodule update --remote` 뒤 부모에서 커밋해요.
+
+
 ## Marimo 발표용 선행연구 리뷰
 
 프로젝트 폴더에서 실행합니다.

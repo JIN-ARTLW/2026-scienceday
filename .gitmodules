@@ -1,0 +1,6 @@
+[submodule "ML1"]
+	path = ML1
+	url = https://github.com/JIN-ARTLW/2026scienceday-ML1_density.git
+[submodule "ML2"]
+	path = ML2
+	url = https://github.com/JIN-ARTLW/2026scienceday-ML2_decay.git
